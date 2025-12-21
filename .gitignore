@@ -1,0 +1,43 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+vendor/
+
+# Go build artifacts
+bin/
+dist/
+server
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Cloud Function deployment
+.gcloudignore
+
+# Workflow files (temporary)
+*.yml
+*.yaml
+
+# Documentation (temporary)
+README.md
+
+# Environment variables
+.env
+.env.local
