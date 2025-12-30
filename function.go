@@ -58,17 +58,7 @@ type SearchResponse struct {
 
 // SearchActivities is the HTTP Cloud Function entry point
 func SearchActivities(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers for Android app
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.Header().Set("Content-Type", "application/json")
-
-	// Handle preflight OPTIONS request
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
 
 	// Only accept POST requests
 	if r.Method != http.MethodPost {
