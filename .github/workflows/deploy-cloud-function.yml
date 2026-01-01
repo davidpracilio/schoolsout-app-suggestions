@@ -10,7 +10,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   FUNCTION_NAME: SearchActivities
   REGION: us-central1
-  RUNTIME: go123
+  RUNTIME: go124
 
 jobs:
   deploy:
@@ -46,7 +46,8 @@ jobs:
             --source=. \
             --entry-point=${{ env.FUNCTION_NAME }} \
             --trigger-http \
-            --ingress-settings=internal-only \
+            --ingress-settings=all \
+            --no-allow-unauthenticated \
             --memory=256MB \
             --timeout=60s \
             --max-instances=10
@@ -70,3 +71,4 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"query": "test deployment"}' \
             --fail-with-body
+
