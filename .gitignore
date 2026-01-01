@@ -31,10 +31,6 @@ server
 # Cloud Function deployment
 .gcloudignore
 
-# Workflow files (temporary)
-*.yml
-*.yaml
-
 # Documentation (temporary)
 README.md
 

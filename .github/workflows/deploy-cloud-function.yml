@@ -1,0 +1,72 @@
+name: Deploy to Google Cloud Functions
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allows manual deployment from GitHub UI
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  FUNCTION_NAME: SearchActivities
+  REGION: us-central1
+  RUNTIME: go123
+
+jobs:
+  deploy:
+    name: Deploy Cloud Function
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set GCP Project
+        run: gcloud config set project ${{ env.PROJECT_ID }}
+
+      - name: Deploy to Cloud Functions
+        run: |
+          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --runtime=${{ env.RUNTIME }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --source=. \
+            --entry-point=${{ env.FUNCTION_NAME }} \
+            --trigger-http \
+            --ingress-settings=internal-only \
+            --memory=256MB \
+            --timeout=60s \
+            --max-instances=10
+
+      - name: Get Function URL
+        id: get-url
+        run: |
+          URL=$(gcloud functions describe ${{ env.FUNCTION_NAME }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --gen2 \
+            --format='value(serviceConfig.uri)')
+          echo "FUNCTION_URL=$URL" >> $GITHUB_OUTPUT
+          echo "### ✅ Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "**Function URL:** $URL" >> $GITHUB_STEP_SUMMARY
+
+      - name: Test Function
+        run: |
+          curl -X POST ${{ steps.get-url.outputs.FUNCTION_URL }} \
+            -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "test deployment"}' \
+            --fail-with-body
