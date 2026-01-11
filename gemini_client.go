@@ -85,9 +85,9 @@ func getSecretValue(ctx context.Context, projectID, secretName string) (string, 
 // NewGeminiClient creates a new Gemini API client
 func NewGeminiClient() *GeminiClient {
 	ctx := context.Background()
-	projectID := os.Getenv("GCP_PROJECT_ID")
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT") // Cloud Functions Gen2 sets this automatically
 	if projectID == "" {
-		projectID = os.Getenv("GOOGLE_CLOUD_PROJECT") // Cloud Functions sets this automatically
+		projectID = os.Getenv("GCP_PROJECT_ID") // Fallback for local development
 	}
 
 	var apiKey string
@@ -95,12 +95,13 @@ func NewGeminiClient() *GeminiClient {
 
 	// Fetch from Secret Manager only
 	if projectID != "" {
+		log.Printf("Using project ID: %s", projectID)
 		apiKey, err = getSecretValue(ctx, projectID, "gemini-api-key")
 		if err != nil {
 			log.Printf("Error: Failed to fetch API key from Secret Manager: %v", err)
 		}
 	} else {
-		log.Println("Error: GCP_PROJECT_ID not set, cannot fetch API key from Secret Manager")
+		log.Println("Error: No GCP project ID found in environment (GOOGLE_CLOUD_PROJECT or GCP_PROJECT_ID)")
 	}
 
 	if apiKey == "" {
