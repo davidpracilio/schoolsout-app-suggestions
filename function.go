@@ -75,6 +75,11 @@ func SearchActivities(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
+	// Log the complete request details
+	bodyJSON, _ := json.Marshal(searchRequest)
+	log.Printf("Incoming request - Method: %s, URL: %s, Query: %s, Body: %s",
+		r.Method, r.URL.Path, r.URL.RawQuery, string(bodyJSON))
+
 	// Validate request
 	if strings.TrimSpace(searchRequest.Query) == "" {
 		sendErrorResponse(w, http.StatusBadRequest, "Query parameter is required and cannot be empty")

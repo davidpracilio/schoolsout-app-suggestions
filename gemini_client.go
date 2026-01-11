@@ -86,9 +86,6 @@ func getSecretValue(ctx context.Context, projectID, secretName string) (string, 
 func NewGeminiClient() *GeminiClient {
 	ctx := context.Background()
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT") // Cloud Functions Gen2 sets this automatically
-	if projectID == "" {
-		projectID = os.Getenv("GCP_PROJECT_ID") // Fallback for local development
-	}
 
 	var apiKey string
 	var err error
