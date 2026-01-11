@@ -96,14 +96,7 @@ func SearchActivities(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// performSearch searches for activities based on the query
-//
-// TODO: Implement actual search logic:
-// - Connect to database (Firestore, Cloud SQL)
-// - Call external APIs for event data
-// - Use NLP/ML for semantic search
-// - Apply filters (location, age range, date range)
-// - Rank and sort results
+// performSearch searches for activities based on the query using Gemini API
 func performSearch(req *SearchRequest) []Activity {
 	log.Printf("Searching with query: '%s'", req.Query)
 
@@ -117,46 +110,18 @@ func performSearch(req *SearchRequest) []Activity {
 		log.Printf("Date range filter: %s to %s", req.DateRange.StartDate, req.DateRange.EndDate)
 	}
 
-	// For now, return mock data
-	// You'll replace this with actual search logic later
-	return []Activity{
-		{
-			ID:          "1",
-			Title:       "Science Museum Workshop",
-			Description: "Hands-on science experiments and interactive exhibits for kids",
-			Category:    "Educational",
-			Location:    "City Science Museum",
-			AgeRange:    "6-12 years",
-			Date:        "2025-12-20",
-			Price:       "$15",
-			ImageURL:    "https://example.com/science-museum.jpg",
-			BookingURL:  "https://example.com/book/1",
-		},
-		{
-			ID:          "2",
-			Title:       "Kids Cooking Class",
-			Description: "Learn to make healthy snacks and treats",
-			Category:    "Cooking",
-			Location:    "Community Kitchen",
-			AgeRange:    "8-14 years",
-			Date:        "2025-12-22",
-			Price:       "$25",
-			ImageURL:    "https://example.com/cooking.jpg",
-			BookingURL:  "https://example.com/book/2",
-		},
-		{
-			ID:          "3",
-			Title:       "Outdoor Adventure Camp",
-			Description: "Rock climbing, hiking, and nature exploration",
-			Category:    "Outdoor",
-			Location:    "Adventure Park",
-			AgeRange:    "10-16 years",
-			Date:        "2025-12-27",
-			Price:       "$45",
-			ImageURL:    "https://example.com/adventure.jpg",
-			BookingURL:  "https://example.com/book/3",
-		},
+	// Create Gemini client and query for activity suggestions
+	geminiClient := NewGeminiClient()
+	activities, err := geminiClient.GenerateActivitiesSuggestions(req)
+
+	if err != nil {
+		log.Printf("Error querying Gemini API: %v", err)
+		// TODO: Add proper exception handling/recovery mechanism to capture and handle errors gracefully
+		// Return empty list instead of irrelevant fallback activities
+		return []Activity{}
 	}
+
+	return activities
 }
 
 // sendErrorResponse sends an error response with the given status code and message

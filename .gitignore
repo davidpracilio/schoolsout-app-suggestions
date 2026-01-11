@@ -37,3 +37,6 @@ README.md
 # Environment variables
 .env
 .env.local
+
+# HTTP test files
+*.http

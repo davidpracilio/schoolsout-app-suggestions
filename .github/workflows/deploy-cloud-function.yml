@@ -11,6 +11,7 @@ env:
   FUNCTION_NAME: SearchActivities
   REGION: us-central1
   RUNTIME: go124
+  TEST_QUERY: "fun activities for kids aged 8-12 for areas around perth, western australia"
 
 jobs:
   deploy:
@@ -35,6 +36,20 @@ jobs:
 
       - name: Set GCP Project
         run: gcloud config set project ${{ env.PROJECT_ID }}
+
+      - name: Create Secret Manager Resource
+        run: |
+          # Check if secret exists
+          if ! gcloud secrets describe gemini-api-key --project=${{ env.PROJECT_ID }} 2>/dev/null; then
+            echo "Creating secret with Gemini API key from GitHub secrets..."
+            echo -n "${{ secrets.GEMINI_API_KEY }}" | gcloud secrets create gemini-api-key \
+              --project=${{ env.PROJECT_ID }} \
+              --replication-policy="automatic" \
+              --data-file=-
+            echo "✅ Secret created with Gemini API key"
+          else
+            echo "Secret resource already exists"
+          fi
 
       - name: Deploy to Cloud Functions
         run: |
@@ -69,6 +84,6 @@ jobs:
           curl -X POST ${{ steps.get-url.outputs.FUNCTION_URL }} \
             -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
             -H "Content-Type: application/json" \
-            -d '{"query": "test deployment"}' \
+            -d "{\"query\": \"${{ env.TEST_QUERY }}\"}" \
             --fail-with-body
 
