@@ -65,7 +65,8 @@ jobs:
             --no-allow-unauthenticated \
             --memory=256MB \
             --timeout=60s \
-            --max-instances=10
+            --max-instances=10 \
+            --set-env-vars=GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
 
       - name: Get Function URL
         id: get-url
