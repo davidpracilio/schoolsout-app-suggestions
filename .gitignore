@@ -33,6 +33,7 @@ server
 
 # Documentation (temporary)
 README.md
+docs/
 
 # Environment variables
 .env

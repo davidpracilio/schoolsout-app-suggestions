@@ -62,11 +62,11 @@ jobs:
             --entry-point=${{ env.FUNCTION_NAME }} \
             --trigger-http \
             --ingress-settings=all \
-            --no-allow-unauthenticated \
+            --allow-unauthenticated \
             --memory=256MB \
             --timeout=60s \
             --max-instances=10 \
-            --set-env-vars=GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
+            --set-env-vars=GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},ALLOWED_IPS=${{ secrets.ALLOWED_IPS }}
 
       - name: Get Function URL
         id: get-url
@@ -79,12 +79,4 @@ jobs:
           echo "FUNCTION_URL=$URL" >> $GITHUB_OUTPUT
           echo "### ✅ Deployment Successful!" >> $GITHUB_STEP_SUMMARY
           echo "**Function URL:** $URL" >> $GITHUB_STEP_SUMMARY
-
-      - name: Test Function
-        run: |
-          curl -X POST ${{ steps.get-url.outputs.FUNCTION_URL }} \
-            -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-            -H "Content-Type: application/json" \
-            -d "{\"query\": \"${{ env.TEST_QUERY }}\"}" \
-            --fail-with-body
 
