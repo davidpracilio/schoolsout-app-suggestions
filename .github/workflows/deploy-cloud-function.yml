@@ -66,7 +66,7 @@ jobs:
             --memory=256MB \
             --timeout=60s \
             --max-instances=10 \
-            --set-env-vars=GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},ALLOWED_IPS=${{ secrets.ALLOWED_IPS }}
+            --set-env-vars=GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
 
       - name: Get Function URL
         id: get-url
