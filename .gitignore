@@ -41,3 +41,6 @@ docs/
 
 # HTTP test files
 *.http
+
+# Tests
+tests/

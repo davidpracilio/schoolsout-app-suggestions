@@ -128,22 +128,35 @@ func cleanupRateLimitMap() {
 	}
 }
 
+// isAllowedOrigin checks if the origin is allowed for CORS
+func isAllowedOrigin(origin string) bool {
+	return origin == "https://schoolsout-app.web.app/" || origin == "https://schoolsout-app.firebaseapp.com/"
+}
+
 // SearchActivities is the HTTP Cloud Function entry point
 func SearchActivities(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Handle CORS preflight
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Max-Age", "3600")
-		w.WriteHeader(http.StatusNoContent)
+		origin := r.Header.Get("Origin")
+		if isAllowedOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "3600")
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			w.WriteHeader(http.StatusForbidden)
+		}
 		return
 	}
 
 	// Set CORS headers for actual requests
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	origin := r.Header.Get("Origin")
+	if isAllowedOrigin(origin) {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
 
 	// Only accept POST requests
 	if r.Method != http.MethodPost {
