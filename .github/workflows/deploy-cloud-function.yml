@@ -65,6 +65,7 @@ jobs:
             --allow-unauthenticated \
             --memory=256MB \
             --timeout=60s \
+            --min-instances=1 \
             --max-instances=10 \
             --set-env-vars=GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
 
