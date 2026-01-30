@@ -203,6 +203,9 @@ Search Query: %s`, req.Query)
 
 	prompt += `
 
+Include venues that allow drop and leave activities. A booking url is preferred, but if one cannot be found,
+provide a link to the venue or organiser's main website as the booking url.
+
 Please respond with ONLY a JSON array of activities in the following format (no additional text):
 [
   {
