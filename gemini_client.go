@@ -203,7 +203,11 @@ Search Query: %s`, req.Query)
 
 	prompt += `
 
-Include venues that allow drop and leave activities, but don't provide that in the description.
+Prioritise venues that allow drop and leave activities, but don't provide that in the description
+of the results returned.
+
+Only provide suggestions where the activity is current or upcoming, and published or updated from the past 12 months
+or less than one year.
 
 Provide a link to the venue or organiser's main website if there is one, as the booking url.
 
