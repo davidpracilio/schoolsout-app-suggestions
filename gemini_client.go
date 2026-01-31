@@ -158,6 +158,8 @@ func (c *GeminiClient) searchWithGoogleSearch(req *SearchRequest) (string, error
 	// Build the search prompt
 	searchPrompt := c.buildSearchPrompt(req)
 
+	log.Printf("Stage 1 Search Prompt: %s", searchPrompt)
+
 	// Create the Gemini API request with Google Search tool
 	geminiReq := GeminiRequest{
 		SystemInstruction: &SystemInstruction{
@@ -195,12 +197,14 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 	// Build the conversion prompt
 	conversionPrompt := c.buildConversionPrompt(searchResults, req)
 
+	log.Printf("Stage 2 Conversion Prompt: %s", conversionPrompt)
+
 	// Create the Gemini API request without tools
 	geminiReq := GeminiRequest{
 		SystemInstruction: &SystemInstruction{
 			Parts: []Part{
 				{
-					Text: "You are a JSON formatting assistant. Convert the provided activity information into a valid JSON array following the exact structure specified. Ensure all URLs are preserved exactly as provided.",
+					Text: "You are a data reformatting assistant. Parse the provided Search Results text and convert it exactly into a JSON array. Do not generate new information, perform searches, or modify any details. Preserve all URLs and text verbatim from the provided data.",
 				},
 			},
 		},
@@ -219,7 +223,7 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 		return nil, err
 	}
 
-	log.Printf("JSON conversion response: %s", responseText)
+	log.Printf("Stage 2 JSON conversion response: %s", responseText)
 
 	// Parse the JSON response
 	var activities []Activity
@@ -230,6 +234,8 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 			return nil, fmt.Errorf("failed to parse activities from response: %w", err)
 		}
 	}
+
+	log.Printf("Parsed activities: %+v", activities)
 
 	return activities, nil
 }
@@ -294,6 +300,7 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 
 // buildSearchPrompt constructs the search prompt for Stage 1 (Google Search mode)
 func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
+	// Build the main search query
 	prompt := fmt.Sprintf("Search for 5-10 %s activities", req.Query)
 
 	if req.AgeRange != nil {
@@ -311,42 +318,27 @@ func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
 	} else {
 		searchYear = fmt.Sprintf("%d", time.Now().Year()) // Use current year
 	}
-	prompt += fmt.Sprintf(" for school holidays in %s", searchYear)
+	prompt += fmt.Sprintf(" for school holidays in %s.\n\n", searchYear)
 
-	prompt += `
-
-### CRITICAL INSTRUCTIONS:
+	// Add critical instructions - simplified and focused
+	prompt += `### CRITICAL INSTRUCTIONS FOR URLS:
 1. For every activity identified, you MUST provide the direct 'official' URL (e.g., the website of the park, zoo, or organizer).
 2. Look specifically at the 'source' link or 'metadata' attached to each search result snippet to find these URLs.
 3. DO NOT state that the URL is 'not available' if a search result exists.
-4. Extract as much information as possible from the search results including:
-   - Category (Educational, Sports, Arts, Outdoor, Entertainment, etc.)
-   - Specific location/venue name and address
-   - Price information (look for cost, pricing, admission fees in the search results)
-   - Date information if available
-5. Format each entry as: 
+4. Format each entry as: 
    - Name: [Activity Name]
-   - Description: [1-2 sentences about the activity]
-   - URL: [Direct Web Link from search result]
-   - Category: [Category type - REQUIRED, infer from activity type if not explicitly stated]
-   - Location: [Specific venue/location name - REQUIRED]
-   - Age Range: [Age range suitable for the activity]
-   - Date: [Specific date or date range if available]
-   - Price: [Price information - look for this in search snippets, e.g., "Free", "$25", "$15-$30", "From $20"]
-
-### ADDITIONAL REQUIREMENTS:
-- Prioritise venues that allow drop and leave activities (but don't mention this in descriptions)
-- Only provide suggestions where the activity is current or upcoming, and published or updated from the past 12 months or less than one year
-- For Category: Analyze the activity type and assign appropriate category (Educational, Sports, Arts, Outdoor, Entertainment, Technology, Science, etc.)
-- For Location: Include the specific venue name, not just the city
-- For Price: Search the snippets carefully for pricing information - it's often mentioned in event descriptions`
+   - Description: [1-2 sentences]
+   - URL: [Direct Web Link]
+   - Category: [Category type if available]
+   - Location: [Specific venue/location name if available]
+   - Price: [Price if available]`
 
 	return prompt
 }
 
 // buildConversionPrompt constructs the conversion prompt for Stage 2 (JSON formatting)
 func (c *GeminiClient) buildConversionPrompt(searchResults string, req *SearchRequest) string {
-	prompt := fmt.Sprintf(`Convert the following activity search results into a JSON array. Preserve all URLs and information exactly as provided.
+	prompt := fmt.Sprintf(`Convert the following activity search results into a JSON array. DO NOT perform any new searches, generate new activities, or modify any information. Only parse and reformat the exact data provided in the Search Results section below into the specified JSON structure. Preserve all URLs exactly as they appear in the search results.
 
 Search Results:
 %s
@@ -363,21 +355,21 @@ Please respond with ONLY a JSON array of activities in the following format (no 
     "date": "Date in yyyy-MM-dd format or empty string if not available",
     "price": "Price (e.g., Free, $20, $10-$30) or empty string if not available",
     "imageUrl": "https://example.com/image.jpg or empty string if not available",
-    "bookingUrl": "https://example.com/book - MUST be the official URL from search results"
+    "bookingUrl": "[Extracted URL from search results] - MUST be the exact URL from the Search Results above"
   }
 ]
 
 CRITICAL REQUIREMENTS:
 - Generate a unique ID for each activity (e.g., "activity-1", "activity-2")
-- Use the exact URLs from the search results for bookingUrl - DO NOT modify or omit them
-- Category: MUST be populated from the search results (Educational, Sports, Arts, Outdoor, Entertainment, Technology, Science, etc.)
-- Location: MUST include the specific venue/location name from the search results
-- Price: MUST be populated if mentioned in search results (e.g., "Free", "$25", "$15-$30", "From $20")
-- If date is not available in search results, use an empty string
-- If price is not mentioned in search results, use an empty string
-- If imageUrl is not available, use an empty string
+- Use the EXACT URLs from the search results for bookingUrl - copy them verbatim without changes
+- Category: Extract from the search results only (Educational, Sports, Arts, Outdoor, Entertainment, Technology, Science, etc.)
+- Location: Extract the specific venue/location name from the search results only
+- Price: Extract price information from the search results only (e.g., "Free", "$25", "$15-$30", "From $20")
+- If date is not available in search results, use an empty string ""
+- If price is not mentioned in search results, use an empty string ""
+- If imageUrl is not available, use an empty string ""
 - Ensure all JSON is valid and properly formatted
-- DO NOT make up or infer information that wasn't in the search results`, searchResults)
+- DO NOT add, remove, or invent any information not present in the Search Results`, searchResults)
 
 	return prompt
 }
