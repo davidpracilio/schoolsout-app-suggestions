@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
@@ -140,6 +141,10 @@ func (c *GeminiClient) GenerateActivitiesSuggestions(req *SearchRequest) ([]Acti
 	searchResults, err := c.searchWithGoogleSearch(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for activities: %w", err)
+	}
+
+	if searchResults == "" {
+		return nil, fmt.Errorf("empty search results from Stage 1")
 	}
 
 	log.Printf("Search results from Stage 1: %s", searchResults)
@@ -280,22 +285,30 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 		return "", fmt.Errorf("Gemini API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
+	log.Printf("Gemini response body: %s", string(body))
+
 	// Parse response
 	var geminiResp GeminiResponse
 	if err := json.Unmarshal(body, &geminiResp); err != nil {
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Extract text from response
-	if len(geminiResp.Candidates) == 0 {
-		return "", fmt.Errorf("no candidates in response")
+	// Extract text from all parts, skipping the first if it's just an intro
+	var texts []string
+	parts := geminiResp.Candidates[0].Content.Parts
+	if len(parts) > 1 && strings.Contains(parts[0].Text, "Okay, I will search") {
+		// Skip the intro part
+		parts = parts[1:]
 	}
-
-	if len(geminiResp.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("no parts in candidate content")
+	for _, part := range parts {
+		texts = append(texts, part.Text)
 	}
+	fullText := strings.Join(texts, "")
 
-	return geminiResp.Candidates[0].Content.Parts[0].Text, nil
+	if fullText == "" {
+		return "", fmt.Errorf("empty response text from Gemini")
+	}
+	return fullText, nil
 }
 
 // buildSearchPrompt constructs the search prompt for Stage 1 (Google Search mode)
