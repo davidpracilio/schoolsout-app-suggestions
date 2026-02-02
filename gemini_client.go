@@ -331,7 +331,7 @@ func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
 	} else {
 		searchYear = fmt.Sprintf("%d", time.Now().Year()) // Use current year
 	}
-	prompt += fmt.Sprintf(" for school holidays in %s.\n\n", searchYear)
+	prompt += fmt.Sprintf(" for school holidays in %s and list the prices.\n\n", searchYear)
 
 	// Add critical instructions - simplified and focused
 	prompt += `### CRITICAL INSTRUCTIONS FOR URLS:
