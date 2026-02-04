@@ -242,6 +242,9 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 
 	log.Printf("Parsed activities: %+v", activities)
 
+	// Post-process to extract URLs if missing
+	activities = c.postProcessURLs(activities, searchResults)
+
 	return activities, nil
 }
 
@@ -372,9 +375,19 @@ Please respond with ONLY a JSON array of activities in the following format (no 
   }
 ]
 
-CRITICAL REQUIREMENTS:
+CRITICAL REQUIREMENTS FOR URL EXTRACTION:
+- URLs in search results may appear in different formats:
+  * "* URL: https://vertexaisearch.cloud.google.com/grounding-api-redirect/..."
+  * "* URL: [https://vertexaisearch.cloud.google.com/grounding-api-redirect/...](https://vertexaisearch.cloud.google.com/grounding-api-redirect/...)"
+  * "* URL: https://... and https://..." (multiple URLs separated by 'and')
+- For bookingUrl, use the FIRST URL that appears for each activity
+- If multiple URLs are present for one activity (separated by 'and'), choose the first one
+- If URL is in markdown format [text](url), extract only the URL part inside the parentheses
+- Copy URLs verbatim without any changes or additions
+- If no URL is found for an activity, use an empty string ""
+
+OTHER REQUIREMENTS:
 - Generate a unique ID for each activity (e.g., "activity-1", "activity-2")
-- Use the EXACT URLs from the search results for bookingUrl - copy them verbatim without changes
 - Category: Extract from the search results only (Educational, Sports, Arts, Outdoor, Entertainment, Technology, Science, etc.)
 - Location: Extract the specific venue/location name from the search results only
 - Price: Extract price information from the search results only (e.g., "Free", "$25", "$15-$30", "From $20")
@@ -431,4 +444,93 @@ func (c *GeminiClient) extractJSONFromMarkdown(text string) ([]Activity, error) 
 		return nil, err
 	}
 	return activities, nil
+}
+
+// postProcessURLs extracts URLs from search results if bookingUrl is missing
+func (c *GeminiClient) postProcessURLs(activities []Activity, searchResults string) []Activity {
+	// Extract all URLs from search results
+	urls := c.extractURLsFromText(searchResults)
+
+	log.Printf("Extracted URLs from search results: %v", urls)
+
+	// For activities with missing bookingUrl, assign the next available URL
+	urlIndex := 0
+	for i := range activities {
+		if activities[i].BookingURL == "" && urlIndex < len(urls) {
+			activities[i].BookingURL = urls[urlIndex]
+			log.Printf("Assigned URL to activity %s: %s", activities[i].Title, urls[urlIndex])
+			urlIndex++
+		}
+	}
+
+	return activities
+}
+
+// extractURLsFromText extracts all grounding API redirect URLs from text
+func (c *GeminiClient) extractURLsFromText(text string) []string {
+	var urls []string
+	lines := strings.Split(text, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Look for lines containing URLs
+		if strings.Contains(line, "https://vertexaisearch.cloud.google.com/grounding-api-redirect/") {
+			// Handle different formats:
+			// 1. "* URL: https://..."
+			// 2. "* URL: [https://...](https://...)"
+			// 3. "* URL: https://... and https://..."
+
+			// First, handle markdown links [text](url)
+			if strings.Contains(line, "](") {
+				// Extract URL from markdown link
+				startIdx := strings.Index(line, "](")
+				if startIdx != -1 {
+					startIdx += 2 // Skip ](
+					endIdx := strings.Index(line[startIdx:], ")")
+					if endIdx != -1 {
+						url := line[startIdx : startIdx+endIdx]
+						if strings.HasPrefix(url, "https://vertexaisearch.cloud.google.com/grounding-api-redirect/") && strings.HasSuffix(url, "==") {
+							urls = append(urls, url)
+						}
+					}
+				}
+			} else {
+				// Handle plain URLs or URLs separated by 'and'
+				urlStart := "https://vertexaisearch.cloud.google.com/grounding-api-redirect/"
+				startIdx := strings.Index(line, urlStart)
+				for startIdx != -1 {
+					// Find the end of the URL (look for space, 'and', or end of line)
+					endIdx := startIdx
+					for endIdx < len(line) {
+						char := line[endIdx]
+						if char == ' ' || (endIdx+3 < len(line) && line[endIdx:endIdx+3] == "and") {
+							break
+						}
+						endIdx++
+					}
+					url := line[startIdx:endIdx]
+					// Validate it's a complete URL (should end with ==)
+					if strings.HasSuffix(url, "==") {
+						urls = append(urls, url)
+					}
+					// Look for next URL in the same line (after 'and ')
+					nextStart := strings.Index(line[endIdx:], "and ")
+					if nextStart != -1 {
+						nextStart = endIdx + nextStart + 4 // Skip "and "
+						nextURLStart := strings.Index(line[nextStart:], urlStart)
+						if nextURLStart != -1 {
+							startIdx = nextStart + nextURLStart
+						} else {
+							startIdx = -1
+						}
+					} else {
+						startIdx = -1
+					}
+				}
+			}
+		}
+	}
+
+	return urls
 }
