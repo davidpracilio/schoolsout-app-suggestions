@@ -296,9 +296,22 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
+	// Check if we have any candidates in the response
+	if len(geminiResp.Candidates) == 0 {
+		log.Printf("Warning: No candidates returned from Gemini API")
+		return "", fmt.Errorf("no candidates in Gemini response")
+	}
+
+	candidate := geminiResp.Candidates[0]
+
+	// Log the finish reason to help diagnose incomplete responses
+	if candidate.FinishReason != "" {
+		log.Printf("Gemini finish reason: %s", candidate.FinishReason)
+	}
+
 	// Extract text from all parts, skipping the first if it's just an intro
 	var texts []string
-	parts := geminiResp.Candidates[0].Content.Parts
+	parts := candidate.Content.Parts
 	if len(parts) > 1 && strings.Contains(parts[0].Text, "Okay, I will search") {
 		// Skip the intro part
 		parts = parts[1:]
@@ -309,7 +322,8 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 	fullText := strings.Join(texts, "")
 
 	if fullText == "" {
-		return "", fmt.Errorf("empty response text from Gemini")
+		log.Printf("Warning: Empty response text from Gemini. Finish reason: %s, Number of parts: %d", candidate.FinishReason, len(candidate.Content.Parts))
+		return "", fmt.Errorf("empty response text from Gemini (finish reason: %s)", candidate.FinishReason)
 	}
 	return fullText, nil
 }
