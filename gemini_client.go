@@ -53,9 +53,10 @@ type GeminiResponse struct {
 
 // Candidate represents a candidate response from Gemini
 type Candidate struct {
-	Content       CandidateContent `json:"content"`
-	FinishReason  string           `json:"finishReason,omitempty"`
-	SafetyRatings []SafetyRating   `json:"safetyRatings,omitempty"`
+	Content           CandidateContent   `json:"content"`
+	FinishReason      string             `json:"finishReason,omitempty"`
+	SafetyRatings     []SafetyRating     `json:"safetyRatings,omitempty"`
+	GroundingMetadata *GroundingMetadata `json:"groundingMetadata,omitempty"`
 }
 
 // CandidateContent represents the content in a candidate response
@@ -67,6 +68,22 @@ type CandidateContent struct {
 type SafetyRating struct {
 	Category    string `json:"category"`
 	Probability string `json:"probability"`
+}
+
+// GroundingMetadata represents grounding metadata from Gemini response
+type GroundingMetadata struct {
+	GroundingChunks []GroundingChunk `json:"groundingChunks,omitempty"`
+}
+
+// GroundingChunk represents a single grounding chunk
+type GroundingChunk struct {
+	Web *WebChunk `json:"web,omitempty"`
+}
+
+// WebChunk represents web information in a grounding chunk
+type WebChunk struct {
+	URI   string `json:"uri,omitempty"`
+	Title string `json:"title,omitempty"`
 }
 
 // GeminiClient handles communication with the Gemini API
@@ -245,6 +262,9 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 	// Post-process to extract URLs if missing
 	activities = c.postProcessURLs(activities, searchResults)
 
+	// Stage 3: Recover missing URLs (max 2 recovery requests)
+	activities = c.recoverMissingURLs(activities)
+
 	return activities, nil
 }
 
@@ -307,6 +327,15 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 	// Log the finish reason to help diagnose incomplete responses
 	if candidate.FinishReason != "" {
 		log.Printf("Gemini finish reason: %s", candidate.FinishReason)
+	}
+
+	// Extract URLs from grounding metadata if available
+	if candidate.GroundingMetadata != nil && len(candidate.GroundingMetadata.GroundingChunks) > 0 {
+		log.Printf("Stage 1: Found %d grounding chunks in metadata", len(candidate.GroundingMetadata.GroundingChunks))
+		groundingURLs := c.extractURLsFromGroundingMetadata(candidate.GroundingMetadata)
+		if len(groundingURLs) > 0 {
+			log.Printf("Stage 1: Extracted %d URLs from grounding metadata: %v", len(groundingURLs), groundingURLs)
+		}
 	}
 
 	// Extract text from all parts, skipping the first if it's just an intro
@@ -543,6 +572,163 @@ func (c *GeminiClient) extractURLsFromText(text string) []string {
 					}
 				}
 			}
+		}
+	}
+
+	return urls
+}
+
+// recoverMissingURLs performs Stage 3: Recover missing URLs with max 2 recovery requests
+func (c *GeminiClient) recoverMissingURLs(activities []Activity) []Activity {
+	// Count activities with missing URLs
+	missingCount := 0
+	missingIndices := []int{}
+	for i, activity := range activities {
+		if activity.BookingURL == "" {
+			missingCount++
+			missingIndices = append(missingIndices, i)
+		}
+	}
+
+	if missingCount == 0 {
+		log.Printf("Stage 3: All activities have URLs, no recovery needed")
+		return activities
+	}
+
+	log.Printf("Stage 3: Found %d activities with missing URLs. Attempting recovery (max 2 requests)...", missingCount)
+
+	// Limit recovery attempts to max 2
+	recoveryLimit := 2
+	if missingCount < recoveryLimit {
+		recoveryLimit = missingCount
+	}
+
+	recoveredCount := 0
+	stillMissingCount := 0
+
+	// Attempt to recover URLs for up to 2 activities
+	for i := 0; i < recoveryLimit; i++ {
+		activityIdx := missingIndices[i]
+		activity := activities[activityIdx]
+
+		log.Printf("Stage 3: Attempting to recover URL for activity %d/%d: %s", i+1, recoveryLimit, activity.Title)
+
+		// Search for the service URL
+		url, err := c.searchForServiceURL(activity.Title)
+		if err != nil {
+			log.Printf("Stage 3: Failed to recover URL for '%s': %v", activity.Title, err)
+			stillMissingCount++
+			continue
+		}
+
+		if url != "" {
+			activities[activityIdx].BookingURL = url
+			log.Printf("Stage 3: Successfully recovered URL for '%s': %s", activity.Title, url)
+			recoveredCount++
+		} else {
+			log.Printf("Stage 3: No URL found for '%s'", activity.Title)
+			stillMissingCount++
+		}
+	}
+
+	// Log remaining missing URLs (beyond the 2 recovery attempts)
+	remainingMissing := missingCount - recoveryLimit
+	if remainingMissing > 0 {
+		log.Printf("Stage 3: %d activities still have missing URLs (beyond recovery limit)", remainingMissing)
+		stillMissingCount += remainingMissing
+	}
+
+	// Final summary
+	log.Printf("Stage 3 Summary: Recovered %d URLs, %d still missing out of %d total missing", recoveredCount, stillMissingCount, missingCount)
+
+	return activities
+}
+
+// searchForServiceURL searches for the official website URL of a service/activity
+func (c *GeminiClient) searchForServiceURL(activityTitle string) (string, error) {
+	// Build the search prompt for finding the service URL
+	searchPrompt := fmt.Sprintf("Find the official website URL for: %s\n\nProvide ONLY the direct URL to the official website, nothing else.", activityTitle)
+
+	log.Printf("Stage 3 Search Prompt: %s", searchPrompt)
+
+	// Create the Gemini API request with Google Search tool
+	geminiReq := GeminiRequest{
+		SystemInstruction: &SystemInstruction{
+			Parts: []Part{
+				{
+					Text: "You are a URL finder. Your task is to find and return ONLY the official website URL for the given service or activity. Return only the URL, no other text.",
+				},
+			},
+		},
+		Contents: []Content{
+			{
+				Parts: []Part{
+					{Text: searchPrompt},
+				},
+			},
+		},
+		Tools: []Tool{
+			{
+				GoogleSearch: &GoogleSearchTool{},
+			},
+		},
+	}
+
+	// Send request to Gemini
+	responseText, err := c.sendGeminiRequest(geminiReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to search for service URL: %w", err)
+	}
+
+	// Extract URL from response
+	url := c.extractURLFromResponse(responseText)
+	return url, nil
+}
+
+// extractURLFromResponse extracts a URL from the Gemini response text
+func (c *GeminiClient) extractURLFromResponse(text string) string {
+	// Clean up the text
+	text = strings.TrimSpace(text)
+
+	// Look for URLs starting with https:// or http://
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "https://") || strings.HasPrefix(line, "http://") {
+			// Extract just the URL part (stop at space or other delimiters)
+			parts := strings.Fields(line)
+			if len(parts) > 0 {
+				url := parts[0]
+				// Remove trailing punctuation if present
+				url = strings.TrimRight(url, ".,;:!?)")
+				return url
+			}
+		}
+	}
+
+	// If no URL found with https/http prefix, try to find vertexaisearch URLs
+	if strings.Contains(text, "https://vertexaisearch.cloud.google.com/grounding-api-redirect/") {
+		urls := c.extractURLsFromText(text)
+		if len(urls) > 0 {
+			return urls[0]
+		}
+	}
+
+	return ""
+}
+
+// extractURLsFromGroundingMetadata extracts URLs from the grounding metadata
+func (c *GeminiClient) extractURLsFromGroundingMetadata(metadata *GroundingMetadata) []string {
+	var urls []string
+
+	if metadata == nil || len(metadata.GroundingChunks) == 0 {
+		return urls
+	}
+
+	for i, chunk := range metadata.GroundingChunks {
+		if chunk.Web != nil && chunk.Web.URI != "" {
+			urls = append(urls, chunk.Web.URI)
+			log.Printf("Stage 1: Grounding chunk %d - URI: %s, Title: %s", i, chunk.Web.URI, chunk.Web.Title)
 		}
 	}
 
