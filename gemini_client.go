@@ -354,6 +354,12 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 		log.Printf("Warning: Empty response text from Gemini. Finish reason: %s, Number of parts: %d", candidate.FinishReason, len(candidate.Content.Parts))
 		return "", fmt.Errorf("empty response text from Gemini (finish reason: %s)", candidate.FinishReason)
 	}
+
+	// Inject grounding URLs into the response text if they're missing
+	if candidate.GroundingMetadata != nil && len(candidate.GroundingMetadata.GroundingChunks) > 0 {
+		fullText = c.injectGroundingURLsIntoText(fullText, candidate.GroundingMetadata)
+	}
+
 	return fullText, nil
 }
 
@@ -733,4 +739,37 @@ func (c *GeminiClient) extractURLsFromGroundingMetadata(metadata *GroundingMetad
 	}
 
 	return urls
+}
+
+// injectGroundingURLsIntoText injects grounding URLs into the response text where "* URL:" appears empty
+func (c *GeminiClient) injectGroundingURLsIntoText(text string, metadata *GroundingMetadata) string {
+	if metadata == nil || len(metadata.GroundingChunks) == 0 {
+		return text
+	}
+
+	// Extract URLs from grounding chunks
+	groundingURLs := c.extractURLsFromGroundingMetadata(metadata)
+	if len(groundingURLs) == 0 {
+		return text
+	}
+
+	log.Printf("Injecting %d grounding URLs into response text", len(groundingURLs))
+
+	// Split text into lines
+	lines := strings.Split(text, "\n")
+	urlIndex := 0
+
+	// Find all "* URL:" lines and fill them with grounding URLs
+	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		// Look for lines that are just "* URL:" or "* URL: " (empty URL)
+		if (trimmedLine == "* URL:" || trimmedLine == "*   URL:") && urlIndex < len(groundingURLs) {
+			// Replace the line with the URL
+			lines[i] = strings.Replace(line, trimmedLine, strings.TrimPrefix(trimmedLine, "* "), 1) + groundingURLs[urlIndex]
+			log.Printf("Injected URL at line %d: %s", i, groundingURLs[urlIndex])
+			urlIndex++
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
