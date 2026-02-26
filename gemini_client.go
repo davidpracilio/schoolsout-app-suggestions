@@ -510,16 +510,19 @@ Please respond with ONLY a JSON array of activities in the following format (no 
   }
 ]
 
-CRITICAL REQUIREMENTS FOR URL EXTRACTION:
+CRITICAL REQUIREMENTS FOR URL EXTRACTION AND PAIRING:
 - URLs in search results may appear in different formats:
   * "* URL: https://vertexaisearch.cloud.google.com/grounding-api-redirect/..."
   * "* URL: [https://vertexaisearch.cloud.google.com/grounding-api-redirect/...](https://vertexaisearch.cloud.google.com/grounding-api-redirect/...)"
   * "* URL: https://... and https://..." (multiple URLs separated by 'and')
+- IMPORTANT: Each URL must be paired with the CORRECT activity it belongs to
+- Look for activity names/titles immediately before or after the URL to determine correct pairing
 - For bookingUrl, use the FIRST URL that appears for each activity
 - If multiple URLs are present for one activity (separated by 'and'), choose the first one
 - If URL is in markdown format [text](url), extract only the URL part inside the parentheses
 - Copy URLs verbatim without any changes or additions
 - If no URL is found for an activity, use an empty string ""
+- VERIFY: Double-check that each URL logically belongs to its paired activity based on context
 
 TAG SELECTION REQUIREMENTS:
 - Analyze the activity description and details to suggest relevant tags
