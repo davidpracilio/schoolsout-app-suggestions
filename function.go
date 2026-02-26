@@ -38,16 +38,17 @@ type SearchRequest struct {
 
 // Activity represents a school holiday activity or event
 type Activity struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Category    string `json:"category"`
-	Location    string `json:"location,omitempty"`
-	AgeRange    string `json:"ageRange,omitempty"`
-	Date        string `json:"date,omitempty"`
-	Price       string `json:"price,omitempty"`
-	ImageURL    string `json:"imageUrl,omitempty"`
-	BookingURL  string `json:"bookingUrl,omitempty"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Category    string   `json:"category"`
+	Location    string   `json:"location,omitempty"`
+	AgeRange    string   `json:"ageRange,omitempty"`
+	Date        string   `json:"date,omitempty"`
+	Price       string   `json:"price,omitempty"`
+	ImageURL    string   `json:"imageUrl,omitempty"`
+	BookingURL  string   `json:"bookingUrl,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 }
 
 // SearchResponse represents the response model for activity search

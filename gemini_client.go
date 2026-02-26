@@ -92,6 +92,80 @@ type GeminiClient struct {
 	Model  string
 }
 
+// ValidTags contains all valid tag IDs organized by category
+type ValidTags struct {
+	AgeGroups   []string
+	Facilities  []string
+	Environment []string
+}
+
+// GetValidTags returns the complete set of valid tag IDs
+func GetValidTags() ValidTags {
+	return ValidTags{
+		AgeGroups: []string{
+			"baby_infant",
+			"toddler",
+			"preschooler",
+			"school_kids",
+			"teens_big_kids",
+			"all_ages",
+		},
+		Facilities: []string{
+			"toilets",
+			"baby_change",
+			"cafe_coffee",
+			"picnic_area",
+			"easy_parking",
+			"accessible",
+			"free_wifi",
+			"fenced_in",
+			"grip_socks",
+		},
+		Environment: []string{
+			"outdoor",
+			"indoor",
+			"air_con",
+			"shaded",
+			"quiet_zone",
+			"high_energy",
+		},
+	}
+}
+
+// IsValidTag checks if a tag ID is in the valid tags list
+func IsValidTag(tag string) bool {
+	validTags := GetValidTags()
+	for _, t := range validTags.AgeGroups {
+		if t == tag {
+			return true
+		}
+	}
+	for _, t := range validTags.Facilities {
+		if t == tag {
+			return true
+		}
+	}
+	for _, t := range validTags.Environment {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateAndFilterTags filters tags to only include valid ones
+func ValidateAndFilterTags(tags []string) []string {
+	var validatedTags []string
+	seen := make(map[string]bool)
+	for _, tag := range tags {
+		if IsValidTag(tag) && !seen[tag] {
+			validatedTags = append(validatedTags, tag)
+			seen[tag] = true
+		}
+	}
+	return validatedTags
+}
+
 // getSecretValue retrieves a secret value from Google Cloud Secret Manager
 func getSecretValue(ctx context.Context, projectID, secretName string) (string, error) {
 	client, err := secretmanager.NewClient(ctx)
@@ -265,6 +339,9 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 	// Stage 3: Recover missing URLs (max 2 recovery requests)
 	activities = c.recoverMissingURLs(activities)
 
+	// Post-process to validate and filter tags
+	activities = c.validateActivityTags(activities)
+
 	return activities, nil
 }
 
@@ -403,6 +480,14 @@ func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
 
 // buildConversionPrompt constructs the conversion prompt for Stage 2 (JSON formatting)
 func (c *GeminiClient) buildConversionPrompt(searchResults string, req *SearchRequest) string {
+	// Get valid tags for the prompt
+	validTags := GetValidTags()
+	tagsDescription := fmt.Sprintf(`
+AVAILABLE TAGS (select only from these exact IDs):
+Age Groups: %v
+Facilities: %v
+Environment: %v`, validTags.AgeGroups, validTags.Facilities, validTags.Environment)
+
 	prompt := fmt.Sprintf(`Convert the following activity search results into a JSON array. DO NOT perform any new searches, generate new activities, or modify any information. Only parse and reformat the exact data provided in the Search Results section below into the specified JSON structure. Preserve all URLs exactly as they appear in the search results.
 
 Search Results:
@@ -420,7 +505,8 @@ Please respond with ONLY a JSON array of activities in the following format (no 
     "date": "Date in yyyy-MM-dd format or empty string if not available",
     "price": "Price (e.g., Free, $20, $10-$30) or empty string if not available",
     "imageUrl": "https://example.com/image.jpg or empty string if not available",
-    "bookingUrl": "[Extracted URL from search results] - MUST be the exact URL from the Search Results above"
+    "bookingUrl": "[Extracted URL from search results] - MUST be the exact URL from the Search Results above",
+    "tags": ["tag-id-1", "tag-id-2"] - array of relevant tag IDs from the available tags list below
   }
 ]
 
@@ -435,6 +521,13 @@ CRITICAL REQUIREMENTS FOR URL EXTRACTION:
 - Copy URLs verbatim without any changes or additions
 - If no URL is found for an activity, use an empty string ""
 
+TAG SELECTION REQUIREMENTS:
+- Analyze the activity description and details to suggest relevant tags
+- Only use tag IDs from the available tags list below
+- Select multiple tags if they apply (e.g., an outdoor activity for school kids might have: ["outdoor", "school_kids"])
+- If no tags apply, use an empty array []
+- Do NOT invent or use tag IDs not in the available list%s
+
 OTHER REQUIREMENTS:
 - Generate a unique ID for each activity (e.g., "activity-1", "activity-2")
 - Category: Extract from the search results only (Educational, Sports, Arts, Outdoor, Entertainment, Technology, Science, etc.)
@@ -444,7 +537,7 @@ OTHER REQUIREMENTS:
 - If price is not mentioned in search results, use an empty string ""
 - If imageUrl is not available, use an empty string ""
 - Ensure all JSON is valid and properly formatted
-- DO NOT add, remove, or invent any information not present in the Search Results`, searchResults)
+- DO NOT add, remove, or invent any information not present in the Search Results`, searchResults, tagsDescription)
 
 	return prompt
 }
@@ -772,4 +865,16 @@ func (c *GeminiClient) injectGroundingURLsIntoText(text string, metadata *Ground
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// validateActivityTags validates and filters tags for all activities
+func (c *GeminiClient) validateActivityTags(activities []Activity) []Activity {
+	for i := range activities {
+		if len(activities[i].Tags) > 0 {
+			// Validate and filter tags to only include valid ones
+			activities[i].Tags = ValidateAndFilterTags(activities[i].Tags)
+			log.Printf("Activity '%s' tags after validation: %v", activities[i].Title, activities[i].Tags)
+		}
+	}
+	return activities
 }
