@@ -120,6 +120,7 @@ func GetValidTags() ValidTags {
 			"free_wifi",
 			"fenced_in",
 			"grip_socks",
+			"drop_and_leave",
 		},
 		Environment: []string{
 			"outdoor",
@@ -128,6 +129,7 @@ func GetValidTags() ValidTags {
 			"shaded",
 			"quiet_zone",
 			"high_energy",
+			"water_activity",
 		},
 	}
 }
@@ -463,17 +465,19 @@ func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
 	prompt += fmt.Sprintf(" for school holidays in %s and list the prices.\n\n", searchYear)
 
 	// Add critical instructions - simplified and focused
-	prompt += `### CRITICAL INSTRUCTIONS FOR URLS:
+	prompt += `### CRITICAL INSTRUCTIONS FOR URLS AND FACILITIES:
 1. For every activity identified, you MUST provide the direct 'official' URL (e.g., the website of the park, zoo, or organizer).
 2. Look specifically at the 'source' link or 'metadata' attached to each search result snippet to find these URLs.
 3. DO NOT state that the URL is 'not available' if a search result exists.
-4. Format each entry as: 
+4. PRIORITIZE activities that offer "drop and leave" or "drop-off" facilities, as these are highly valued by parents during school holidays.
+5. Format each entry as: 
    - Name: [Activity Name]
    - Description: [1-2 sentences]
    - URL: [Direct Web Link]
    - Category: [Category type if available]
    - Location: [Specific venue/location name if available]
-   - Price: [Price if available]`
+   - Price: [Price if available]
+   - Drop and Leave: [Yes/No - if mentioned in search results]`
 
 	return prompt
 }
@@ -528,6 +532,7 @@ TAG SELECTION REQUIREMENTS:
 - Analyze the activity description and details to suggest relevant tags
 - Only use tag IDs from the available tags list below
 - Select multiple tags if they apply (e.g., an outdoor activity for school kids might have: ["outdoor", "school_kids"])
+- PRIORITY: If an activity has the "drop_and_leave" tag, ALWAYS include it as it is a highly valued facility feature
 - If no tags apply, use an empty array []
 - Do NOT invent or use tag IDs not in the available list%s
 
