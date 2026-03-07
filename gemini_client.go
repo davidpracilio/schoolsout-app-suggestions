@@ -264,7 +264,7 @@ func (c *GeminiClient) searchWithGoogleSearch(req *SearchRequest) (string, error
 		SystemInstruction: &SystemInstruction{
 			Parts: []Part{
 				{
-					Text: "You are a technical data extraction agent. Your primary goal is to find specific events and their official source URLs. When using Google Search, you must extract the landing page URL from the search result metadata. Never state that a URL is 'not available' if a relevant search result is present.",
+					Text: "You are a technical data extraction agent. Your primary goal is to find specific events and their official source URLs. When using Google Search, you must extract just the hostname or domain name from the search result metadata. Never state that a URL is 'not available' if a relevant search result is present.",
 				},
 			},
 		},
@@ -337,10 +337,10 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 	log.Printf("Parsed activities: %+v", activities)
 
 	// Post-process to extract URLs if missing
-	activities = c.postProcessURLs(activities, searchResults)
+	//activities = c.postProcessURLs(activities, searchResults)
 
 	// Stage 3: Recover missing URLs (max 2 recovery requests)
-	activities = c.recoverMissingURLs(activities)
+	//activities = c.recoverMissingURLs(activities)
 
 	// Post-process to validate and filter tags
 	activities = c.validateActivityTags(activities)
