@@ -20,21 +20,12 @@ import (
 type GeminiRequest struct {
 	SystemInstruction *SystemInstruction `json:"system_instruction,omitempty"`
 	Contents          []Content          `json:"contents"`
-	Tools             []Tool             `json:"tools,omitempty"`
 }
 
 // SystemInstruction represents the system instruction for Gemini
 type SystemInstruction struct {
 	Parts []Part `json:"parts"`
 }
-
-// Tool represents a tool configuration (e.g., Google Search)
-type Tool struct {
-	GoogleSearch *GoogleSearchTool `json:"google_search,omitempty"`
-}
-
-// GoogleSearchTool represents the Google Search tool configuration
-type GoogleSearchTool struct{}
 
 // Content represents the content structure in Gemini request
 type Content struct {
@@ -53,10 +44,9 @@ type GeminiResponse struct {
 
 // Candidate represents a candidate response from Gemini
 type Candidate struct {
-	Content           CandidateContent   `json:"content"`
-	FinishReason      string             `json:"finishReason,omitempty"`
-	SafetyRatings     []SafetyRating     `json:"safetyRatings,omitempty"`
-	GroundingMetadata *GroundingMetadata `json:"groundingMetadata,omitempty"`
+	Content       CandidateContent `json:"content"`
+	FinishReason  string           `json:"finishReason,omitempty"`
+	SafetyRatings []SafetyRating   `json:"safetyRatings,omitempty"`
 }
 
 // CandidateContent represents the content in a candidate response
@@ -68,22 +58,6 @@ type CandidateContent struct {
 type SafetyRating struct {
 	Category    string `json:"category"`
 	Probability string `json:"probability"`
-}
-
-// GroundingMetadata represents grounding metadata from Gemini response
-type GroundingMetadata struct {
-	GroundingChunks []GroundingChunk `json:"groundingChunks,omitempty"`
-}
-
-// GroundingChunk represents a single grounding chunk
-type GroundingChunk struct {
-	Web *WebChunk `json:"web,omitempty"`
-}
-
-// WebChunk represents web information in a grounding chunk
-type WebChunk struct {
-	URI   string `json:"uri,omitempty"`
-	Title string `json:"title,omitempty"`
 }
 
 // GeminiClient handles communication with the Gemini API
@@ -130,6 +104,7 @@ func GetValidTags() ValidTags {
 			"quiet_zone",
 			"high_energy",
 			"water_activity",
+			"sports",
 		},
 	}
 }
@@ -176,10 +151,8 @@ func getSecretValue(ctx context.Context, projectID, secretName string) (string, 
 	}
 	defer client.Close()
 
-	// Build the resource name: projects/{project}/secrets/{secret}/versions/latest
 	name := fmt.Sprintf("projects/%s/secrets/%s/versions/latest", projectID, secretName)
 
-	// Access the secret version
 	req := &secretmanagerpb.AccessSecretVersionRequest{
 		Name: name,
 	}
@@ -200,7 +173,6 @@ func NewGeminiClient() *GeminiClient {
 	var apiKey string
 	var err error
 
-	// Fetch from Secret Manager only
 	if projectID != "" {
 		log.Printf("Using project ID: %s", projectID)
 		apiKey, err = getSecretValue(ctx, projectID, "gemini-api-key")
@@ -218,21 +190,21 @@ func NewGeminiClient() *GeminiClient {
 	return &GeminiClient{
 		APIKey: apiKey,
 		Model:  "gemini-3-flash-preview",
-		// was "gemini-2.0-flash",
 	}
 }
 
 // GenerateActivitiesSuggestions queries Gemini API to generate activity suggestions
-// This uses a two-stage approach:
-// 1. Search mode with Google Search to find activities with valid URLs
-// 2. JSON conversion to structure the results properly
+// using a two-stage approach:
+// 1. Search stage: prompt Gemini to find activities with URLs
+// 2. JSON conversion stage: reformat the results into structured JSON
+//
+// TODO - Check if the search terms entered are relevant or in line with an activity search?
 func (c *GeminiClient) GenerateActivitiesSuggestions(req *SearchRequest) ([]Activity, error) {
 	if c.APIKey == "" {
 		return nil, fmt.Errorf("Gemini API key not configured")
 	}
 
-	// Stage 1: Search mode with Google Search
-	searchResults, err := c.searchWithGoogleSearch(req)
+	searchResults, err := c.searchActivities(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for activities: %w", err)
 	}
@@ -243,7 +215,6 @@ func (c *GeminiClient) GenerateActivitiesSuggestions(req *SearchRequest) ([]Acti
 
 	log.Printf("Search results from Stage 1: %s", searchResults)
 
-	// Stage 2: Convert search results to structured JSON
 	activities, err := c.convertToStructuredJSON(searchResults, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to structured JSON: %w", err)
@@ -252,19 +223,17 @@ func (c *GeminiClient) GenerateActivitiesSuggestions(req *SearchRequest) ([]Acti
 	return activities, nil
 }
 
-// searchWithGoogleSearch performs Stage 1: Search mode with Google Search
-func (c *GeminiClient) searchWithGoogleSearch(req *SearchRequest) (string, error) {
-	// Build the search prompt
+// searchActivities performs Stage 1: prompts Gemini to find activities with URLs
+func (c *GeminiClient) searchActivities(req *SearchRequest) (string, error) {
 	searchPrompt := c.buildSearchPrompt(req)
 
 	log.Printf("Stage 1 Search Prompt: %s", searchPrompt)
 
-	// Create the Gemini API request with Google Search tool
 	geminiReq := GeminiRequest{
 		SystemInstruction: &SystemInstruction{
 			Parts: []Part{
 				{
-					Text: "You are a technical data extraction agent. Your primary goal is to find specific events and their official source URLs. When using Google Search, you must extract just the hostname or domain name from the search result metadata. Never state that a URL is 'not available' if a relevant search result is present.",
+					Text: "You are a technical data extraction agent. Your primary goal is to find specific events and their official source URLs. You must extract just the protocol and hostname or domain name (e.g., https://example.com) from the result. Never state that a URL is 'not available' if a relevant search result is present.",
 				},
 			},
 		},
@@ -275,14 +244,8 @@ func (c *GeminiClient) searchWithGoogleSearch(req *SearchRequest) (string, error
 				},
 			},
 		},
-		Tools: []Tool{
-			{
-				GoogleSearch: &GoogleSearchTool{},
-			},
-		},
 	}
 
-	// Send request to Gemini
 	responseText, err := c.sendGeminiRequest(geminiReq)
 	if err != nil {
 		return "", err
@@ -291,14 +254,12 @@ func (c *GeminiClient) searchWithGoogleSearch(req *SearchRequest) (string, error
 	return responseText, nil
 }
 
-// convertToStructuredJSON performs Stage 2: Convert search results to structured JSON
+// convertToStructuredJSON performs Stage 2: converts search results to structured JSON
 func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *SearchRequest) ([]Activity, error) {
-	// Build the conversion prompt
 	conversionPrompt := c.buildConversionPrompt(searchResults, req)
 
 	log.Printf("Stage 2 Conversion Prompt: %s", conversionPrompt)
 
-	// Create the Gemini API request without tools
 	geminiReq := GeminiRequest{
 		SystemInstruction: &SystemInstruction{
 			Parts: []Part{
@@ -316,7 +277,6 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 		},
 	}
 
-	// Send request to Gemini
 	responseText, err := c.sendGeminiRequest(geminiReq)
 	if err != nil {
 		return nil, err
@@ -324,10 +284,8 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 
 	log.Printf("Stage 2 JSON conversion response: %s", responseText)
 
-	// Parse the JSON response
 	var activities []Activity
 	if err := json.Unmarshal([]byte(responseText), &activities); err != nil {
-		// If direct parsing fails, try to extract JSON from markdown code blocks
 		activities, err = c.extractJSONFromMarkdown(responseText)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse activities from response: %w", err)
@@ -336,13 +294,6 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 
 	log.Printf("Parsed activities: %+v", activities)
 
-	// Post-process to extract URLs if missing
-	//activities = c.postProcessURLs(activities, searchResults)
-
-	// Stage 3: Recover missing URLs (max 2 recovery requests)
-	//activities = c.recoverMissingURLs(activities)
-
-	// Post-process to validate and filter tags
 	activities = c.validateActivityTags(activities)
 
 	return activities, nil
@@ -350,7 +301,6 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 
 // sendGeminiRequest sends a request to Gemini API and returns the response text
 func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error) {
-	// Marshal request to JSON
 	jsonData, err := json.Marshal(geminiReq)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
@@ -358,18 +308,15 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 
 	log.Printf("Gemini request: %s", string(jsonData))
 
-	// Build the API URL
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
 		c.Model, c.APIKey)
 
-	// Create HTTP request
 	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// Send request
 	client := &http.Client{}
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -377,26 +324,22 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 	}
 	defer resp.Body.Close()
 
-	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("Gemini API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	log.Printf("Gemini response body: %s", string(body))
 
-	// Parse response
 	var geminiResp GeminiResponse
 	if err := json.Unmarshal(body, &geminiResp); err != nil {
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Check if we have any candidates in the response
 	if len(geminiResp.Candidates) == 0 {
 		log.Printf("Warning: No candidates returned from Gemini API")
 		return "", fmt.Errorf("no candidates in Gemini response")
@@ -404,25 +347,13 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 
 	candidate := geminiResp.Candidates[0]
 
-	// Log the finish reason to help diagnose incomplete responses
 	if candidate.FinishReason != "" {
 		log.Printf("Gemini finish reason: %s", candidate.FinishReason)
 	}
 
-	// Extract URLs from grounding metadata if available
-	if candidate.GroundingMetadata != nil && len(candidate.GroundingMetadata.GroundingChunks) > 0 {
-		log.Printf("Stage 1: Found %d grounding chunks in metadata", len(candidate.GroundingMetadata.GroundingChunks))
-		groundingURLs := c.extractURLsFromGroundingMetadata(candidate.GroundingMetadata)
-		if len(groundingURLs) > 0 {
-			log.Printf("Stage 1: Extracted %d URLs from grounding metadata: %v", len(groundingURLs), groundingURLs)
-		}
-	}
-
-	// Extract text from all parts, skipping the first if it's just an intro
 	var texts []string
 	parts := candidate.Content.Parts
 	if len(parts) > 1 && strings.Contains(parts[0].Text, "Okay, I will search") {
-		// Skip the intro part
 		parts = parts[1:]
 	}
 	for _, part := range parts {
@@ -435,17 +366,11 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 		return "", fmt.Errorf("empty response text from Gemini (finish reason: %s)", candidate.FinishReason)
 	}
 
-	// Inject grounding URLs into the response text if they're missing
-	if candidate.GroundingMetadata != nil && len(candidate.GroundingMetadata.GroundingChunks) > 0 {
-		fullText = c.injectGroundingURLsIntoText(fullText, candidate.GroundingMetadata)
-	}
-
 	return fullText, nil
 }
 
-// buildSearchPrompt constructs the search prompt for Stage 1 (Google Search mode)
+// buildSearchPrompt constructs the search prompt for Stage 1
 func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
-	// Build the main search query
 	prompt := fmt.Sprintf("Search for 5-10 %s activities", req.Query)
 
 	if req.AgeRange != nil {
@@ -456,22 +381,20 @@ func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
 		prompt += fmt.Sprintf(" in %s", req.Location)
 	}
 
-	// Determine the year to use in the search
 	var searchYear string
 	if req.DateRange != nil {
-		searchYear = req.DateRange.StartDate[:4] // Extract year from date range
+		searchYear = req.DateRange.StartDate[:4]
 	} else {
-		searchYear = fmt.Sprintf("%d", time.Now().Year()) // Use current year
+		searchYear = fmt.Sprintf("%d", time.Now().Year())
 	}
 	prompt += fmt.Sprintf(" for school holidays in %s and list the prices.\n\n", searchYear)
 
-	// Add critical instructions - simplified and focused
 	prompt += `### CRITICAL INSTRUCTIONS FOR URLS AND FACILITIES:
 1. For every activity identified, you MUST provide the direct 'official' URL (e.g., the website of the park, zoo, or organizer).
 2. Look specifically at the 'source' link or 'metadata' attached to each search result snippet to find these URLs.
 3. DO NOT state that the URL is 'not available' if a search result exists.
 4. PRIORITIZE activities that offer "drop and leave" or "drop-off" facilities, as these are highly valued by parents during school holidays.
-5. Format each entry as: 
+5. Format each entry as:
    - Name: [Activity Name]
    - Description: [1-2 sentences]
    - URL: [Direct Web Link]
@@ -485,7 +408,6 @@ func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
 
 // buildConversionPrompt constructs the conversion prompt for Stage 2 (JSON formatting)
 func (c *GeminiClient) buildConversionPrompt(searchResults string, req *SearchRequest) string {
-	// Get valid tags for the prompt
 	validTags := GetValidTags()
 	tagsDescription := fmt.Sprintf(`
 AVAILABLE TAGS (select only from these exact IDs):
@@ -516,15 +438,9 @@ Please respond with ONLY a JSON array of activities in the following format (no 
 ]
 
 CRITICAL REQUIREMENTS FOR URL EXTRACTION AND PAIRING:
-- URLs in search results may appear in different formats:
-  * "* URL: https://vertexaisearch.cloud.google.com/grounding-api-redirect/..."
-  * "* URL: [https://vertexaisearch.cloud.google.com/grounding-api-redirect/...](https://vertexaisearch.cloud.google.com/grounding-api-redirect/...)"
-  * "* URL: https://... and https://..." (multiple URLs separated by 'and')
-- IMPORTANT: Each URL must be paired with the CORRECT activity it belongs to
+- Each URL must be paired with the CORRECT activity it belongs to
 - Look for activity names/titles immediately before or after the URL to determine correct pairing
 - For bookingUrl, use the FIRST URL that appears for each activity
-- If multiple URLs are present for one activity (separated by 'and'), choose the first one
-- If URL is in markdown format [text](url), extract only the URL part inside the parentheses
 - Copy URLs verbatim without any changes or additions
 - If no URL is found for an activity, use an empty string ""
 - VERIFY: Double-check that each URL logically belongs to its paired activity based on context
@@ -553,33 +469,27 @@ OTHER REQUIREMENTS:
 
 // extractJSONFromMarkdown attempts to extract JSON from markdown code blocks
 func (c *GeminiClient) extractJSONFromMarkdown(text string) ([]Activity, error) {
-	// Look for JSON between ```json and ``` or ``` and ```
 	start := -1
 	end := -1
 
-	// Try ```json marker
 	jsonMarker := "```json"
 	if idx := bytes.Index([]byte(text), []byte(jsonMarker)); idx != -1 {
 		start = idx + len(jsonMarker)
-		// Find the closing ```
 		if endIdx := bytes.Index([]byte(text[start:]), []byte("```")); endIdx != -1 {
 			end = start + endIdx
 		}
 	}
 
-	// Try plain ``` marker if json marker not found
 	if start == -1 {
 		marker := "```"
 		if idx := bytes.Index([]byte(text), []byte(marker)); idx != -1 {
 			start = idx + len(marker)
-			// Find the closing ```
 			if endIdx := bytes.Index([]byte(text[start:]), []byte(marker)); endIdx != -1 {
 				end = start + endIdx
 			}
 		}
 	}
 
-	// If we found markers, extract and parse
 	if start != -1 && end != -1 {
 		jsonText := text[start:end]
 		var activities []Activity
@@ -589,7 +499,6 @@ func (c *GeminiClient) extractJSONFromMarkdown(text string) ([]Activity, error) 
 		return activities, nil
 	}
 
-	// If no markdown, try to parse the whole text
 	var activities []Activity
 	if err := json.Unmarshal([]byte(text), &activities); err != nil {
 		return nil, err
@@ -597,290 +506,10 @@ func (c *GeminiClient) extractJSONFromMarkdown(text string) ([]Activity, error) 
 	return activities, nil
 }
 
-// postProcessURLs extracts URLs from search results if bookingUrl is missing
-func (c *GeminiClient) postProcessURLs(activities []Activity, searchResults string) []Activity {
-	// Extract all URLs from search results
-	urls := c.extractURLsFromText(searchResults)
-
-	log.Printf("Extracted URLs from search results: %v", urls)
-
-	// For activities with missing bookingUrl, assign the next available URL
-	urlIndex := 0
-	for i := range activities {
-		if activities[i].BookingURL == "" && urlIndex < len(urls) {
-			activities[i].BookingURL = urls[urlIndex]
-			log.Printf("Assigned URL to activity %s: %s", activities[i].Title, urls[urlIndex])
-			urlIndex++
-		}
-	}
-
-	return activities
-}
-
-// extractURLsFromText extracts all grounding API redirect URLs from text
-func (c *GeminiClient) extractURLsFromText(text string) []string {
-	var urls []string
-	lines := strings.Split(text, "\n")
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		// Look for lines containing URLs
-		if strings.Contains(line, "https://vertexaisearch.cloud.google.com/grounding-api-redirect/") {
-			// Handle different formats:
-			// 1. "* URL: https://..."
-			// 2. "* URL: [https://...](https://...)"
-			// 3. "* URL: https://... and https://..."
-
-			// First, handle markdown links [text](url)
-			if strings.Contains(line, "](") {
-				// Extract URL from markdown link
-				startIdx := strings.Index(line, "](")
-				if startIdx != -1 {
-					startIdx += 2 // Skip ](
-					endIdx := strings.Index(line[startIdx:], ")")
-					if endIdx != -1 {
-						url := line[startIdx : startIdx+endIdx]
-						if strings.HasPrefix(url, "https://vertexaisearch.cloud.google.com/grounding-api-redirect/") && strings.HasSuffix(url, "==") {
-							urls = append(urls, url)
-						}
-					}
-				}
-			} else {
-				// Handle plain URLs or URLs separated by 'and'
-				urlStart := "https://vertexaisearch.cloud.google.com/grounding-api-redirect/"
-				startIdx := strings.Index(line, urlStart)
-				for startIdx != -1 {
-					// Find the end of the URL (look for space, 'and', or end of line)
-					endIdx := startIdx
-					for endIdx < len(line) {
-						char := line[endIdx]
-						if char == ' ' || (endIdx+3 < len(line) && line[endIdx:endIdx+3] == "and") {
-							break
-						}
-						endIdx++
-					}
-					url := line[startIdx:endIdx]
-					// Validate it's a complete URL (should end with ==)
-					if strings.HasSuffix(url, "==") {
-						urls = append(urls, url)
-					}
-					// Look for next URL in the same line (after 'and ')
-					nextStart := strings.Index(line[endIdx:], "and ")
-					if nextStart != -1 {
-						nextStart = endIdx + nextStart + 4 // Skip "and "
-						nextURLStart := strings.Index(line[nextStart:], urlStart)
-						if nextURLStart != -1 {
-							startIdx = nextStart + nextURLStart
-						} else {
-							startIdx = -1
-						}
-					} else {
-						startIdx = -1
-					}
-				}
-			}
-		}
-	}
-
-	return urls
-}
-
-// recoverMissingURLs performs Stage 3: Recover missing URLs with max 2 recovery requests
-func (c *GeminiClient) recoverMissingURLs(activities []Activity) []Activity {
-	// Count activities with missing URLs
-	missingCount := 0
-	missingIndices := []int{}
-	for i, activity := range activities {
-		if activity.BookingURL == "" {
-			missingCount++
-			missingIndices = append(missingIndices, i)
-		}
-	}
-
-	if missingCount == 0 {
-		log.Printf("Stage 3: All activities have URLs, no recovery needed")
-		return activities
-	}
-
-	log.Printf("Stage 3: Found %d activities with missing URLs. Attempting recovery (max 2 requests)...", missingCount)
-
-	// Limit recovery attempts to max 2
-	recoveryLimit := 2
-	if missingCount < recoveryLimit {
-		recoveryLimit = missingCount
-	}
-
-	recoveredCount := 0
-	stillMissingCount := 0
-
-	// Attempt to recover URLs for up to 2 activities
-	for i := 0; i < recoveryLimit; i++ {
-		activityIdx := missingIndices[i]
-		activity := activities[activityIdx]
-
-		log.Printf("Stage 3: Attempting to recover URL for activity %d/%d: %s", i+1, recoveryLimit, activity.Title)
-
-		// Search for the service URL
-		url, err := c.searchForServiceURL(activity.Title)
-		if err != nil {
-			log.Printf("Stage 3: Failed to recover URL for '%s': %v", activity.Title, err)
-			stillMissingCount++
-			continue
-		}
-
-		if url != "" {
-			activities[activityIdx].BookingURL = url
-			log.Printf("Stage 3: Successfully recovered URL for '%s': %s", activity.Title, url)
-			recoveredCount++
-		} else {
-			log.Printf("Stage 3: No URL found for '%s'", activity.Title)
-			stillMissingCount++
-		}
-	}
-
-	// Log remaining missing URLs (beyond the 2 recovery attempts)
-	remainingMissing := missingCount - recoveryLimit
-	if remainingMissing > 0 {
-		log.Printf("Stage 3: %d activities still have missing URLs (beyond recovery limit)", remainingMissing)
-		stillMissingCount += remainingMissing
-	}
-
-	// Final summary
-	log.Printf("Stage 3 Summary: Recovered %d URLs, %d still missing out of %d total missing", recoveredCount, stillMissingCount, missingCount)
-
-	return activities
-}
-
-// searchForServiceURL searches for the official website URL of a service/activity
-func (c *GeminiClient) searchForServiceURL(activityTitle string) (string, error) {
-	// Build the search prompt for finding the service URL
-	searchPrompt := fmt.Sprintf("Find the official website URL for: %s\n\nProvide ONLY the direct URL to the official website, nothing else.", activityTitle)
-
-	log.Printf("Stage 3 Search Prompt: %s", searchPrompt)
-
-	// Create the Gemini API request with Google Search tool
-	geminiReq := GeminiRequest{
-		SystemInstruction: &SystemInstruction{
-			Parts: []Part{
-				{
-					Text: "You are a URL finder. Your task is to find and return ONLY the official website URL for the given service or activity. Return only the URL, no other text.",
-				},
-			},
-		},
-		Contents: []Content{
-			{
-				Parts: []Part{
-					{Text: searchPrompt},
-				},
-			},
-		},
-		Tools: []Tool{
-			{
-				GoogleSearch: &GoogleSearchTool{},
-			},
-		},
-	}
-
-	// Send request to Gemini
-	responseText, err := c.sendGeminiRequest(geminiReq)
-	if err != nil {
-		return "", fmt.Errorf("failed to search for service URL: %w", err)
-	}
-
-	// Extract URL from response
-	url := c.extractURLFromResponse(responseText)
-	return url, nil
-}
-
-// extractURLFromResponse extracts a URL from the Gemini response text
-func (c *GeminiClient) extractURLFromResponse(text string) string {
-	// Clean up the text
-	text = strings.TrimSpace(text)
-
-	// Look for URLs starting with https:// or http://
-	lines := strings.Split(text, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "https://") || strings.HasPrefix(line, "http://") {
-			// Extract just the URL part (stop at space or other delimiters)
-			parts := strings.Fields(line)
-			if len(parts) > 0 {
-				url := parts[0]
-				// Remove trailing punctuation if present
-				url = strings.TrimRight(url, ".,;:!?)")
-				return url
-			}
-		}
-	}
-
-	// If no URL found with https/http prefix, try to find vertexaisearch URLs
-	if strings.Contains(text, "https://vertexaisearch.cloud.google.com/grounding-api-redirect/") {
-		urls := c.extractURLsFromText(text)
-		if len(urls) > 0 {
-			return urls[0]
-		}
-	}
-
-	return ""
-}
-
-// extractURLsFromGroundingMetadata extracts URLs from the grounding metadata
-func (c *GeminiClient) extractURLsFromGroundingMetadata(metadata *GroundingMetadata) []string {
-	var urls []string
-
-	if metadata == nil || len(metadata.GroundingChunks) == 0 {
-		return urls
-	}
-
-	for i, chunk := range metadata.GroundingChunks {
-		if chunk.Web != nil && chunk.Web.URI != "" {
-			urls = append(urls, chunk.Web.URI)
-			log.Printf("Stage 1: Grounding chunk %d - URI: %s, Title: %s", i, chunk.Web.URI, chunk.Web.Title)
-		}
-	}
-
-	return urls
-}
-
-// injectGroundingURLsIntoText injects grounding URLs into the response text where "* URL:" appears empty
-func (c *GeminiClient) injectGroundingURLsIntoText(text string, metadata *GroundingMetadata) string {
-	if metadata == nil || len(metadata.GroundingChunks) == 0 {
-		return text
-	}
-
-	// Extract URLs from grounding chunks
-	groundingURLs := c.extractURLsFromGroundingMetadata(metadata)
-	if len(groundingURLs) == 0 {
-		return text
-	}
-
-	log.Printf("Injecting %d grounding URLs into response text", len(groundingURLs))
-
-	// Split text into lines
-	lines := strings.Split(text, "\n")
-	urlIndex := 0
-
-	// Find all "* URL:" lines and fill them with grounding URLs
-	for i, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		// Look for lines that are just "* URL:" or "* URL: " (empty URL)
-		if (trimmedLine == "* URL:" || trimmedLine == "*   URL:") && urlIndex < len(groundingURLs) {
-			// Replace the line with the URL
-			lines[i] = strings.Replace(line, trimmedLine, strings.TrimPrefix(trimmedLine, "* "), 1) + groundingURLs[urlIndex]
-			log.Printf("Injected URL at line %d: %s", i, groundingURLs[urlIndex])
-			urlIndex++
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
-
 // validateActivityTags validates and filters tags for all activities
 func (c *GeminiClient) validateActivityTags(activities []Activity) []Activity {
 	for i := range activities {
 		if len(activities[i].Tags) > 0 {
-			// Validate and filter tags to only include valid ones
 			activities[i].Tags = ValidateAndFilterTags(activities[i].Tags)
 			log.Printf("Activity '%s' tags after validation: %v", activities[i].Title, activities[i].Tags)
 		}

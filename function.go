@@ -1,6 +1,7 @@
 package schoolsout
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,11 +10,27 @@ import (
 	"sync"
 	"time"
 
+	firebase "firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/appcheck"
 	"github.com/GoogleCloudPlatform/functions-framework-go/functions"
 )
 
+var appCheckClient *appcheck.Client
+
 func init() {
 	functions.HTTP("SearchActivities", SearchActivities)
+}
+
+func init() {
+	app, err := firebase.NewApp(context.Background(), nil)
+	if err != nil {
+		log.Fatalf("Failed to initialize Firebase app: %v", err)
+	}
+	client, err := app.AppCheck(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to initialize App Check client: %v", err)
+	}
+	appCheckClient = client
 }
 
 // AgeRange represents the age filter for activity search
@@ -137,7 +154,7 @@ func SearchActivities(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -145,6 +162,18 @@ func SearchActivities(w http.ResponseWriter, r *http.Request) {
 
 	// Set CORS headers for actual requests
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Verify Firebase App Check token
+	appCheckToken := r.Header.Get("X-Firebase-AppCheck")
+	if appCheckToken == "" {
+		sendErrorResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	if _, err := appCheckClient.VerifyToken(appCheckToken); err != nil {
+		log.Printf("App Check token verification failed: %v", err)
+		sendErrorResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
 
 	// Only accept POST requests
 	if r.Method != http.MethodPost {
