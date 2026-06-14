@@ -22,7 +22,9 @@ func init() {
 }
 
 func init() {
-	app, err := firebase.NewApp(context.Background(), nil)
+	app, err := firebase.NewApp(context.Background(), &firebase.Config{
+		ProjectID: "49131082835",
+	})
 	if err != nil {
 		log.Fatalf("Failed to initialize Firebase app: %v", err)
 	}
