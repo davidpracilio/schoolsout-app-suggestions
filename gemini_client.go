@@ -8,10 +8,8 @@ import (
 	"io"
 	"log"
 	"net/http"
-	neturl "net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
@@ -297,7 +295,6 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 	log.Printf("Parsed activities: %+v", activities)
 
 	activities = c.validateActivityTags(activities)
-	activities = validateActivityURLs(activities)
 
 	return activities, nil
 }
@@ -507,43 +504,6 @@ func (c *GeminiClient) extractJSONFromMarkdown(text string) ([]Activity, error) 
 		return nil, err
 	}
 	return activities, nil
-}
-
-// validateActivityURLs fires concurrent HEAD requests to verify each bookingUrl is reachable.
-// URLs that fail the check (bad format, network error, or HTTP 4xx/5xx) are cleared.
-// All checks run in parallel so total added latency is bounded by the single 3s timeout.
-func validateActivityURLs(activities []Activity) []Activity {
-	var wg sync.WaitGroup
-	for i := range activities {
-		if activities[i].BookingURL == "" {
-			continue
-		}
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			if !isURLReachable(activities[idx].BookingURL) {
-				log.Printf("URL validation failed for '%s': %s", activities[idx].Title, activities[idx].BookingURL)
-				activities[idx].BookingURL = ""
-			}
-		}(i)
-	}
-	wg.Wait()
-	return activities
-}
-
-// isURLReachable returns true if the URL is well-formed and a HEAD request succeeds (status < 400).
-func isURLReachable(rawURL string) bool {
-	parsed, err := neturl.Parse(rawURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return false
-	}
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Head(rawURL)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode < 400
 }
 
 // validateActivityTags validates and filters tags for all activities
