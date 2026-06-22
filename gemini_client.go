@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strings"
 	"time"
@@ -233,7 +234,7 @@ func (c *GeminiClient) searchActivities(req *SearchRequest) (string, error) {
 		SystemInstruction: &SystemInstruction{
 			Parts: []Part{
 				{
-					Text: "You are a technical data extraction agent. Your primary goal is to find specific events and their official source URLs. You must extract the full URL including path (e.g., https://example.com/events/school-holiday-program) from each result. Never truncate a URL to just the hostname. Never state that a URL is 'not available' if a relevant search result is present.",
+					Text: "You are a helpful assistant that finds school holiday activities for families. Identify specific activities, programs, and events with accurate details including names, descriptions, locations, prices, and relevant facilities.",
 				},
 			},
 		},
@@ -295,6 +296,7 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 	log.Printf("Parsed activities: %+v", activities)
 
 	activities = c.validateActivityTags(activities)
+	activities = generateGoogleSearchURLs(activities, req)
 
 	return activities, nil
 }
@@ -389,15 +391,11 @@ func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
 	}
 	prompt += fmt.Sprintf(" for school holidays in %s and list the prices.\n\n", searchYear)
 
-	prompt += `### CRITICAL INSTRUCTIONS FOR URLS AND FACILITIES:
-1. For every activity identified, you MUST provide the direct 'official' URL (e.g., the website of the park, zoo, or organizer).
-2. Look specifically at the 'source' link or 'metadata' attached to each search result snippet to find these URLs.
-3. DO NOT state that the URL is 'not available' if a search result exists.
-4. PRIORITIZE activities that offer "drop and leave" or "drop-off" facilities, as these are highly valued by parents during school holidays.
-5. Format each entry as:
+	prompt += `### INSTRUCTIONS:
+1. PRIORITIZE activities that offer "drop and leave" or "drop-off" facilities, as these are highly valued by parents during school holidays.
+2. Format each entry as:
    - Name: [Activity Name]
    - Description: [1-2 sentences]
-   - URL: [Direct Web Link]
    - Category: [Category type if available]
    - Location: [Specific venue/location name if available]
    - Price: [Price if available]
@@ -415,7 +413,7 @@ Age Groups: %v
 Facilities: %v
 Environment: %v`, validTags.AgeGroups, validTags.Facilities, validTags.Environment)
 
-	prompt := fmt.Sprintf(`Convert the following activity search results into a JSON array. DO NOT perform any new searches, generate new activities, or modify any information. Only parse and reformat the exact data provided in the Search Results section below into the specified JSON structure. Preserve all URLs exactly as they appear in the search results.
+	prompt := fmt.Sprintf(`Convert the following activity search results into a JSON array. DO NOT perform any new searches, generate new activities, or modify any information. Only parse and reformat the exact data provided in the Search Results section below into the specified JSON structure.
 
 Search Results:
 %s
@@ -431,19 +429,11 @@ Please respond with ONLY a JSON array of activities in the following format (no 
     "ageRange": "Age range (e.g., 6-12 years)",
     "date": "Date in yyyy-MM-dd format or empty string if not available",
     "price": "Price (e.g., Free, $20, $10-$30) or empty string if not available",
-    "imageUrl": "https://example.com/image.jpg or empty string if not available",
-    "bookingUrl": "[Extracted URL from search results] - MUST be the exact URL from the Search Results above",
-    "tags": ["tag-id-1", "tag-id-2"] - array of relevant tag IDs from the available tags list below
+    "imageUrl": "",
+    "bookingUrl": "",
+    "tags": ["tag-id-1", "tag-id-2"]
   }
 ]
-
-CRITICAL REQUIREMENTS FOR URL EXTRACTION AND PAIRING:
-- Each URL must be paired with the CORRECT activity it belongs to
-- Look for activity names/titles immediately before or after the URL to determine correct pairing
-- For bookingUrl, use the FIRST URL that appears for each activity
-- Copy URLs verbatim without any changes or additions
-- If no URL is found for an activity, use an empty string ""
-- VERIFY: Double-check that each URL logically belongs to its paired activity based on context
 
 TAG SELECTION REQUIREMENTS:
 - Analyze the activity description and details to suggest relevant tags
@@ -504,6 +494,22 @@ func (c *GeminiClient) extractJSONFromMarkdown(text string) ([]Activity, error) 
 		return nil, err
 	}
 	return activities, nil
+}
+
+// generateGoogleSearchURLs sets each activity's BookingURL to a Google search for the activity title and location.
+func generateGoogleSearchURLs(activities []Activity, req *SearchRequest) []Activity {
+	year := fmt.Sprintf("%d", time.Now().Year())
+	if req.DateRange != nil && len(req.DateRange.StartDate) >= 4 {
+		year = req.DateRange.StartDate[:4]
+	}
+	for i := range activities {
+		query := activities[i].Title + " school holidays " + year
+		if req.Location != "" {
+			query += " " + req.Location
+		}
+		activities[i].BookingURL = "https://www.google.com/search?q=" + neturl.QueryEscape(query)
+	}
+	return activities
 }
 
 // validateActivityTags validates and filters tags for all activities
