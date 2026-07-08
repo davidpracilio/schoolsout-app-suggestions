@@ -95,11 +95,14 @@ var (
 
 // getClientIP extracts the client IP from the request
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (Cloud Functions sets this)
+	// Check X-Forwarded-For header (Cloud Functions sets this). Cloud Run
+	// appends the actual connecting client's address to the END of this
+	// header, so any earlier entries may be attacker-supplied and must not
+	// be trusted for rate limiting.
 	forwarded := r.Header.Get("X-Forwarded-For")
 	if forwarded != "" {
 		ips := strings.Split(forwarded, ",")
-		return strings.TrimSpace(ips[0])
+		return strings.TrimSpace(ips[len(ips)-1])
 	}
 	// Fallback to RemoteAddr
 	ip := r.RemoteAddr
