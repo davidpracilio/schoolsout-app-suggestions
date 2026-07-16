@@ -234,7 +234,7 @@ func (c *GeminiClient) searchActivities(req *SearchRequest) (string, error) {
 		SystemInstruction: &SystemInstruction{
 			Parts: []Part{
 				{
-					Text: "You are a helpful assistant that finds school holiday activities for families. Identify specific activities, programs, and events with accurate details including names, descriptions, locations, prices, and relevant facilities.",
+					Text: "You are a helpful assistant that finds school holiday programs for families. Identify specific holiday programs, camps, and vacation care offerings with accurate details including names, descriptions, locations, prices, and relevant facilities. Prioritize structured, bookable programs over one-off attractions or general venues.",
 				},
 			},
 		},
@@ -265,7 +265,7 @@ func (c *GeminiClient) convertToStructuredJSON(searchResults string, req *Search
 		SystemInstruction: &SystemInstruction{
 			Parts: []Part{
 				{
-					Text: "You are a data reformatting assistant. Parse the provided Search Results text and convert it exactly into a JSON array. Do not generate new information, perform searches, or modify any details. Preserve all URLs and text verbatim from the provided data.",
+					Text: "You are a data reformatting assistant for school holiday programs. Parse the provided Search Results text and convert it exactly into a JSON array. Do not generate new information, perform searches, or modify any details. Preserve all URLs and text verbatim from the provided data.",
 				},
 			},
 		},
@@ -373,7 +373,7 @@ func (c *GeminiClient) sendGeminiRequest(geminiReq GeminiRequest) (string, error
 
 // buildSearchPrompt constructs the search prompt for Stage 1
 func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
-	prompt := fmt.Sprintf("Search for 5-10 %s activities", req.Query)
+	prompt := fmt.Sprintf("Search for 5-10 %s school holiday programs", req.Query)
 
 	if req.AgeRange != nil {
 		prompt += fmt.Sprintf(" for kids aged %d-%d", req.AgeRange.Min, req.AgeRange.Max)
@@ -389,12 +389,13 @@ func (c *GeminiClient) buildSearchPrompt(req *SearchRequest) string {
 	} else {
 		searchYear = fmt.Sprintf("%d", time.Now().Year())
 	}
-	prompt += fmt.Sprintf(" for school holidays in %s and list the prices.\n\n", searchYear)
+	prompt += fmt.Sprintf(" running during the %s school holidays and list the prices.\n\n", searchYear)
 
 	prompt += `### INSTRUCTIONS:
-1. PRIORITIZE activities that offer "drop and leave" or "drop-off" facilities, as these are highly valued by parents during school holidays.
-2. Format each entry as:
-   - Name: [Activity Name]
+1. Focus specifically on structured, bookable school holiday programs (e.g. holiday camps, vacation care, holiday clinics, day programs, workshop series). EXCLUDE one-off attractions, general venues, or things that are open year-round with no holiday-specific program.
+2. PRIORITIZE programs that offer "drop and leave" or "drop-off" facilities, as these are highly valued by parents during school holidays.
+3. Format each entry as:
+   - Name: [Program Name]
    - Description: [1-2 sentences]
    - Category: [Category type if available]
    - Location: [Specific venue/location name if available]
@@ -413,18 +414,18 @@ Age Groups: %v
 Facilities: %v
 Environment: %v`, validTags.AgeGroups, validTags.Facilities, validTags.Environment)
 
-	prompt := fmt.Sprintf(`Convert the following activity search results into a JSON array. DO NOT perform any new searches, generate new activities, or modify any information. Only parse and reformat the exact data provided in the Search Results section below into the specified JSON structure.
+	prompt := fmt.Sprintf(`Convert the following school holiday program search results into a JSON array. DO NOT perform any new searches, generate new programs, or modify any information. Only parse and reformat the exact data provided in the Search Results section below into the specified JSON structure.
 
 Search Results:
 %s
 
-Please respond with ONLY a JSON array of activities in the following format (no additional text, no markdown):
+Please respond with ONLY a JSON array of school holiday programs in the following format (no additional text, no markdown):
 [
   {
     "id": "unique-id",
-    "title": "Activity Title",
-    "description": "Brief description of the activity",
-    "category": "Category (e.g., Educational, Sports, Arts, Outdoor)",
+    "title": "Program Title",
+    "description": "Brief description of the program",
+    "category": "Category (e.g., Holiday Camp, Vacation Care, Educational, Sports, Arts, Outdoor)",
     "location": "Location name",
     "ageRange": "Age range (e.g., 6-12 years)",
     "date": "Date in yyyy-MM-dd format or empty string if not available",
@@ -436,16 +437,16 @@ Please respond with ONLY a JSON array of activities in the following format (no 
 ]
 
 TAG SELECTION REQUIREMENTS:
-- Analyze the activity description and details to suggest relevant tags
+- Analyze the program description and details to suggest relevant tags
 - Only use tag IDs from the available tags list below
-- Select multiple tags if they apply (e.g., an outdoor activity for school kids might have: ["outdoor", "school_kids"])
-- PRIORITY: If an activity has the "drop_and_leave" tag, ALWAYS include it as it is a highly valued facility feature
+- Select multiple tags if they apply (e.g., an outdoor program for school kids might have: ["outdoor", "school_kids"])
+- PRIORITY: If a program has the "drop_and_leave" tag, ALWAYS include it as it is a highly valued facility feature
 - If no tags apply, use an empty array []
 - Do NOT invent or use tag IDs not in the available list%s
 
 OTHER REQUIREMENTS:
-- Generate a unique ID for each activity (e.g., "activity-1", "activity-2")
-- Category: Extract from the search results only (Educational, Sports, Arts, Outdoor, Entertainment, Technology, Science, etc.)
+- Generate a unique ID for each program (e.g., "program-1", "program-2")
+- Category: Extract from the search results only (Holiday Camp, Vacation Care, Educational, Sports, Arts, Outdoor, Entertainment, Technology, Science, etc.)
 - Location: Extract the specific venue/location name from the search results only
 - Price: Extract price information from the search results only (e.g., "Free", "$25", "$15-$30", "From $20")
 - If date is not available in search results, use an empty string ""
