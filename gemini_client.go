@@ -190,7 +190,7 @@ func NewGeminiClient() *GeminiClient {
 
 	return &GeminiClient{
 		APIKey: apiKey,
-		Model:  "gemini-3-flash-preview",
+		Model:  "gemini-3.6-flash",
 	}
 }
 
